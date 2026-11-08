@@ -1,18 +1,40 @@
 import numpy as np
+from dataclasses import dataclass, asdict, fields
+
+#parameters for stock creation
+@dataclass(frozen=True)
+class StockParams:
+    """Fixed personality of one stock. Never changes during its life."""
+    volatility: float
+    drift: float = 0.0
+    reversion: float = 0.0
+    jump_prob: float = 0.0
+    jump_scale: float = 0.0
+    death_prob: float = 0.0
+
+    def __post_init__(self):
+        # Force plain Python floats so JSON saving never meets NumPy types.
+        # (frozen=True blocks normal assignment, hence object.__setattr__.)
+        for f in fields(self):
+            object.__setattr__(self, f.name, float(getattr(self, f.name)))
+        # (frozen=True blocks normal assignment, he
+        if self.volatility < 0:
+            raise ValueError(f"volatility must be >= 0, got {self.volatility}")
+        if self.jump_scale < 0:
+            raise ValueError(f"jump_scale must be >= 0, got {self.jump_scale}")
+        for name in ("reversion", "jump_prob", "death_prob"):
+            value = getattr(self, name)
+            if not 0 <= value <= 1:
+                raise ValueError(f"{name} must be between 0 and 1, got {value}")
 
 #Stock class for giving individual stocks personality
 class Stock:
-    def __init__(self, id, start_price, name, category, volatility, drift, reversion, jump_prob, jump_scale, death_prob, seed):
+    def __init__(self, id, start_price, name, category, params, seed):
         self.id = id
         self.price = start_price
         self.baseline = start_price
         self.name = name
-        self.volatility = volatility
-        self.drift = drift
-        self.reversion = reversion
-        self.jump_prob = jump_prob
-        self.jump_scale = jump_scale
-        self.death_prob = death_prob
+        self.params = params
         self.rng = np.random.default_rng(seed)
         self.alive = True
         self.category = category
@@ -46,12 +68,7 @@ class Stock:
             "id": self.id,
             "name": self.name,
             "category": self.category,
-            "volatility": self.volatility,
-            "drift": self.drift,
-            "reversion": self.reversion,
-            "jump_prob": self.jump_prob,
-            "jump_scale": self.jump_scale,
-            "death_prob": self.death_prob,
+            "params": self.params,
             "price": float(self.price),
             "baseline": self.baseline,
             "alive": self.alive,
@@ -65,12 +82,7 @@ class Stock:
         self.id = state["id"]
         self.name = state["name"]
         self.category = state["category"]
-        self.volatility = state["volatility"]
-        self.drift = state["drift"]
-        self.reversion = state["reversion"]
-        self.jump_prob = state["jump_prob"]
-        self.jump_scale = state["jump_scale"]
-        self.death_prob = state["death_prob"]
+        self.params = state["params"]
         self.price = state["price"]
         self.baseline = state["baseline"]
         self.alive = state["alive"]
@@ -79,8 +91,6 @@ class Stock:
     #rebuilds stocks from save, stock does not have to exist
     @classmethod
     def from_state(cls, state):
-        stock = cls(state["id"], state["price"], state["name"], state["category"], state["volatility"], state["drift"], state["reversion"], state["jump_prob"], state["jump_scale"], state["death_prob"], seed=0)
+        stock = cls(state["id"], state["price"], state["name"], state["category"],state["params"], seed=0)
         stock.set_state(state)
         return stock
-    
-
