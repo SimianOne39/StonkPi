@@ -47,7 +47,7 @@ def first_difference(a, b):
     return None
 
 def test_save_restore(n=500, m=500):
-    stock = Stock(1, 100.0, "ABC", 0.005, 0.00006, 0.0002, 0.0003, 0.04, 0.0004, 123)
+    stock = Stock(1, 100.0, "ABC", "test", 0.005, 0.00006, 0.0002, 0.0003, 0.04, 0.0004, 123)
     run_ticks(stock, n)
 
     # Round trip through real JSON text
@@ -68,7 +68,7 @@ def test_save_restore(n=500, m=500):
     print("save/restore (alive stock): passed")
 
 def test_save_restore_dead():
-    stock = Stock(2, 50.0, "XYZ", 0.01, 0.00008, 0.0002, 0.0003, 0.04, 0.0004, 456)
+    stock = Stock(2, 50.0, "XYZ", "test", 0.01, 0.00008, 0.0002, 0.0003, 0.04, 0.0004, 456)
     run_ticks(stock, 100)
     stock.alive = False
     stock.price = 0.0
@@ -84,10 +84,10 @@ def test_save_restore_dead():
 
 def demo_plot():
     runs, labels = [], []
-    for label, drift,vol in [("Safe 0.001",0.00008,0.001),
-                                   ("Medium 0.004",0.00012,0.004),
-                                   ("Risky 0.12",0.00016,0.012)]:
-        stock = Stock(1, 100.0, "TST", vol, drift, 0.0002, 0.0003, 0.04, 0.0001, 4832)
+    for label, drift,vol, category in [("Safe 0.001",0.00008,0.001, "Safe"),
+                                   ("Medium 0.004",0.00012,0.004, "Medium"),
+                                   ("Risky 0.12",0.00016,0.012, "Risky")]:
+        stock = Stock(1, 100.0, "TST", category, vol, drift, 0.0002, 0.0003, 0.04, 0.0001, 4832)
         runs.append(run_ticks(stock, 3600))
         labels.append(label)
     plot_prices(runs, labels, title="Volatility comparison, 1 hour",
