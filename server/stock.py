@@ -18,7 +18,7 @@ class Stock:
         self.category = category
 
     #Updates the price of the stock
-    def tick(self):
+    def tick(self, market_mood=0):
         #handles dead stocks
         if self.alive == False:
             return None
