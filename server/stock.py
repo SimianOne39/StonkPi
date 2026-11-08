@@ -56,7 +56,12 @@ class Stock:
         pull = self.params.reversion * (np.log(self.baseline) - np.log(self.price))
         log_change = self.params.drift - 0.5 * self.params.volatility**2 + pull + self.params.volatility * z + jump
         self.price *= np.exp(log_change)
-        if u_dead < self.params.death_prob:
+
+        #infinite price handling and price cap
+        if np.isinfinite(self.price) or self.price > (self.baseline * 10):
+            self.price = self.baseline * 10
+
+        if u_dead < self.params.death_prob or (self.price < (0.001 * self.baseline) and self.price < 0.001):
             self.price = 0
             self.alive = False
         return self.price
