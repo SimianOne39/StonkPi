@@ -1,5 +1,8 @@
 import math
 
+# run this file from terminal to check configs
+# "python config.py" when in server directory
+
 # How many seconds between ticks. All values in this file are per tick.
 # Small values run poorly, large values feel bad
 TICK_SECONDS = 1.0 
