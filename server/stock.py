@@ -92,6 +92,10 @@ class Stock:
         self.baseline = state["baseline"]
         self.alive = state["alive"]
         self.rng.bit_generator.state = state["rng"]
+
+    def __repr__(self):
+        status = f"{self.price:.2f}" if self.alive else "DEAD"
+        return f"<Stock {self.id} {self.name} {self.category} {status}>"
     
     #rebuilds stocks from save, stock does not have to exist
     @classmethod
