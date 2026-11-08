@@ -43,7 +43,7 @@ class Stock:
     def tick(self, market_mood=0):
         #handles dead stocks
         if self.alive == False:
-            return None
+            return self.price
         
         #randoms
         z = self.rng.standard_normal()
@@ -52,11 +52,11 @@ class Stock:
         u_dead = self.rng.random()
 
         #new price components and calculation
-        jump = self.jump_scale * j_size if u_jump < self.jump_prob else 0
-        pull = self.reversion * (np.log(self.baseline) - np.log(self.price))
-        log_change = self.drift - 0.5 * self.volatility**2 + pull + self.volatility * z + jump
+        jump = self.params.jump_scale * j_size if u_jump < self.params.jump_prob else 0
+        pull = self.params.reversion * (np.log(self.baseline) - np.log(self.price))
+        log_change = self.params.drift - 0.5 * self.params.volatility**2 + pull + self.params.volatility * z + jump
         self.price *= np.exp(log_change)
-        if u_dead < self.death_prob:
+        if u_dead < self.params.death_prob:
             self.price = 0
             self.alive = False
         return self.price
@@ -68,7 +68,7 @@ class Stock:
             "id": self.id,
             "name": self.name,
             "category": self.category,
-            "params": self.params,
+            "params": asdict(self.params),
             "price": float(self.price),
             "baseline": self.baseline,
             "alive": self.alive,
@@ -82,7 +82,7 @@ class Stock:
         self.id = state["id"]
         self.name = state["name"]
         self.category = state["category"]
-        self.params = state["params"]
+        self.params = StockParams(**state["params"])
         self.price = state["price"]
         self.baseline = state["baseline"]
         self.alive = state["alive"]
@@ -91,6 +91,6 @@ class Stock:
     #rebuilds stocks from save, stock does not have to exist
     @classmethod
     def from_state(cls, state):
-        stock = cls(state["id"], state["price"], state["name"], state["category"],state["params"], seed=0)
+        stock = cls(state["id"], state["price"], state["name"], state["category"], StockParams(**state["params"]), seed=0)
         stock.set_state(state)
         return stock
