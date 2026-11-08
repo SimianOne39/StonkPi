@@ -65,7 +65,7 @@ def test_save_restore(n=500, m=500):
         f"Restored stock diverged at tick {idx}: "
         f"expected {expected[idx]!r}, got {actual[idx]!r}"
     )
-    print("sace/restore (alive stock): passed")
+    print("save/restore (alive stock): passed")
 
 def test_save_restore_dead():
     stock = Stock(2, 50.0, "XYZ", 0.01, 456)
@@ -96,4 +96,4 @@ def demo_volatility_plot():
 if __name__ == "__main__":
     test_save_restore()
     test_save_restore_dead()
-    demo_volatility_plot
+    demo_volatility_plot()
