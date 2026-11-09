@@ -4,3 +4,4 @@ __pycache__/
 saves/
 .vscode/
 .DS_Store
+plots/
