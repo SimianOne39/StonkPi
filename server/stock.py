@@ -62,7 +62,7 @@ class Stock:
         if np.isinfinite(self.price) or self.price > (self.baseline * 10):
             self.price = self.baseline * 10
 
-        if u_dead < self.params.death_prob or (self.price < (config.COLLAPSE_FRACTION * self.baseline) and self.price < config.MIN_PRICE):
+        if u_dead < self.params.death_prob or (self.price < (config.COLLAPSE_FRACTION * self.baseline) or self.price < config.MIN_PRICE):
             self.price = 0
             self.alive = False
         return self.price

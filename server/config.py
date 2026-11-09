@@ -63,10 +63,10 @@ DELIST_DELAY = 10
 # How many dead stock's names are reserved
 NUM_RETIRED_NAMES = 100 
 
-# If stock price is below this and COLLAPSE_FRACTION times the baseline, stock dies
+# If stock price is below this value the stock dies
 MIN_PRICE = 0.01
 
-#See above
+# If stock price drops below this value multiplied by the stock's baseline, the stock dies
 COLLAPSE_FRACTION = 0.001
 
 
