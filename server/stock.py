@@ -1,5 +1,6 @@
 import numpy as np
 from dataclasses import dataclass, asdict, fields
+from server import config
 
 #parameters for stock creation
 @dataclass(frozen=True)
@@ -61,7 +62,7 @@ class Stock:
         if np.isinfinite(self.price) or self.price > (self.baseline * 10):
             self.price = self.baseline * 10
 
-        if u_dead < self.params.death_prob or (self.price < (0.001 * self.baseline) and self.price < 0.001):
+        if u_dead < self.params.death_prob or (self.price < (config.COLLAPSE_FRACTION * self.baseline) and self.price < config.MIN_PRICE):
             self.price = 0
             self.alive = False
         return self.price
