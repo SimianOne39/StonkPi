@@ -2,6 +2,8 @@
 
 A multiplayer stock trading game that runs on a Raspberry Pi. The Pi hosts the market, and everyone else joins from their phone's browser over the same wifi. No app, no accounts, no internet needed.
 
+I took influence from Jackbox games, Kahoot, and similar setups. This is a social competitive game to play with friends at home, not with strangers on the internet.
+
 Fifty-odd fake stocks rise and fall in real time. Everyone can buy and sell any of them at any moment, and whoever has the most money at the end wins. Fake money, fake companies, no financial advice.
 
 ## Status
