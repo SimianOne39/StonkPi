@@ -18,7 +18,6 @@ class StockParams:
         # (frozen=True blocks normal assignment, hence object.__setattr__.)
         for f in fields(self):
             object.__setattr__(self, f.name, float(getattr(self, f.name)))
-        # (frozen=True blocks normal assignment, he
         if self.volatility < 0:
             raise ValueError(f"volatility must be >= 0, got {self.volatility}")
         if self.jump_scale < 0:
