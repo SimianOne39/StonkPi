@@ -69,6 +69,9 @@ MIN_PRICE = 0.01
 # If stock price drops below this value multiplied by the stock's baseline, the stock dies
 COLLAPSE_FRACTION = 0.001
 
+# Stock price can't go above this value times the baseline
+STOCK_CAP_MULT = 10
+
 
 # Checks every setting above. Call at startup (harness, server).
 # Keys every category spec must contain as (min, max) ranges. These must match

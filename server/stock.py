@@ -58,7 +58,7 @@ class Stock:
         self.price *= np.exp(log_change)
 
         #infinite price handling and price cap
-        if np.isinfinite(self.price) or self.price > (self.baseline * 10):
+        if not np.isfinite(self.price) or self.price > (self.baseline * config.STOCK_CAP_MULT):
             self.price = self.baseline * 10
 
         if u_dead < self.params.death_prob or (self.price < (config.COLLAPSE_FRACTION * self.baseline) or self.price < config.MIN_PRICE):
