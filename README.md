@@ -104,3 +104,6 @@ stonkPi.service    systemd unit for starting on boot
 ## A note on saving
 
 A paused game should pick up exactly where it left off, which means the random number generators have to survive a restart too. Every stock saves the full internal state of its generator, and the harness checks that a restored stock produces the same prices, tick for tick, as one that never stopped.
+
+
+## LICENSE MIT. See [LICENSE](LICENSE)
