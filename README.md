@@ -44,7 +44,7 @@ When a stock crashes, it waits a few seconds and comes back as a brand new stock
 
 ## Getting started
 
-You'll need Python 3.12 or newer. I'm developing on a Raspberry Pi 5, but nothing so far is Pi-specific.
+You'll need Python 3.12 or newer. I'm developing on a Raspberry Pi 5, but nothing so far is Pi-specific. This is meant to be a lightweight game that you can run on anything!
 
 ```
 git clone https://github.com/SimianOne39/StonkPi.git
