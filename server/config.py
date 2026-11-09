@@ -193,3 +193,28 @@ def validate_config(specs=None, categories=None):
 if __name__ == "__main__":
     validate_config()
     print("config OK")
+
+
+# Blocklist... it has to be done somewhere
+# Credit to ElementalEngine2 for most of this list, you made my life easier
+BLOCKED = ["ANL", "ANS", "ASS", "AZN", "BBW", "BCH", "CAC", "CAK", 
+                    "CAQ", "CLT", "CNC", "CNT", "COC", "COK", "COQ", "COX", 
+                    "CPD", "CUM", "DCK", "DIC", "DIK", "DIQ", "DIX", "DMN", 
+                    "DSH", "DYC", "DYK", "DYQ", "EYP", "FAG", "FAP", "FCK", 
+                    "FCU", "FGT", "FKU", "FML", "FOB", "FQU", "FUC", "FUK", 
+                    "FUQ", "FUX", "GAI", "GAY", "GEI", "GEY", "GIZ", "GUC", 
+                    "GUK", "GUQ", "GVR", "GZZ", "HOE", "HOR", "IRA", "JAP", 
+                    "JEW", "JIZ", "JOO", "JYZ", "JZZ", "KAC", "KAK", "KAQ", 
+                    "KIK", "KKK", "KLT", "KNT", "KOC", "KOK", "KOQ", "KOX", 
+                    "KUM", "KYC", "KYK", "KYQ", "KYS", "LCK", "LIC", "LIK", 
+                    "LIQ", "LOL", "LSD", "MFF", "MIC", "MIK", "MIQ", "MLF", 
+                    "MUF", "MYC", "MYK", "MYQ", "NAD", "NDS", "NDZ", "NEG", 
+                    "NGR", "NIG", "NIP", "NOG", "NUT", "ORL", "PCP", "PEE", 
+                    "PEG", "PHC", "PHK", "PHQ", "PIS", "PMS", "PNS", "POO", 
+                    "POT", "PRC", "PRK", "PRN", "PRQ", "PSS", "PSY", "PUS", 
+                    "RAC", "RAK", "RAQ", "RCK", "SAC", "SAK", "SAQ", "SCK", 
+                    "SEX", "SFU", "SHT", "SJV", "SLT", "SNM", "SOB", "SOL", 
+                    "STD", "SUC", "SUK", "SUQ", "SXE", "SXI", "SXX", "SXY", 
+                    "SYD", "THC", "TIT", "TOC", "TOK", "TOQ", "TWT", "VAG", 
+                    "VAJ", "VGN", "VJN", "WAC", "WAK", "WAQ", "WCK", "WOP", 
+                    "WTF", "XTC", "XXX"]
