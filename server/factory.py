@@ -27,8 +27,8 @@ def check_specs(specs=None):
         missing, unknown = sorted(expected - found), sorted(found - expected)
         if missing or unknown:
             problems.append(f"{category}: missing {missing}, unknown {unknown}")
-        if problems:
-            raise ValueError("Spec keys don't match StockParams:\n " + "\n ".join(problems))
+    if problems:
+        raise ValueError("Spec keys don't match StockParams:\n " + "\n ".join(problems))
 
 def make_stock(category, uid, master_seed, name, specs=None):
     specs = config.CATEGORY_SPECS if specs is None else specs
