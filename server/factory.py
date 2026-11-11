@@ -30,3 +30,18 @@ def check_specs(specs=None):
         if problems:
             raise ValueError("Spec keys don't match StockParams:\n " + "\n ".join(problems))
 
+def make_stock(category, uid, master_seed, name, specs=None):
+    specs = config.CATEGORY_SPECS if specs is None else specs
+    if category not in specs:
+        raise ValueError
+    
+    parent = SeedSequence([master_seed, uid])
+    roll_ss, tick_ss = parent.spawn(2)
+    rng = default_rng(roll_ss)
+
+    spec = specs[category]
+    start_price = roll(rng, *spec["start_price"])
+    values = {key: roll(rng, *spec[key]) for key in PARAM_KEYS} #fixed order
+    params = StockParams(**values)
+
+    return Stock(uid, start_price, name, category, params, seed=tick_ss)
