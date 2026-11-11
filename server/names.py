@@ -17,9 +17,9 @@ class NamePool:
             n = int(self.rng.integers(26**3))
             a, rest = divmod(n, 26 * 26)
             b, c = divmod(rest, 26)
-            name = string(LETTERS[a] + LETTERS[b] + LETTERS[c])
-            if name not in self.active or self.retired or config.BLOCKED:
-                self.active.append(name)
+            name = LETTERS[a] + LETTERS[b] + LETTERS[c]
+            if name not in self.active and name not in self.retired and name not in config.BLOCKED:
+                self.active.add(name)
                 return name
             count+=1
         raise RuntimeError("no free names, likely config issue")
@@ -29,21 +29,19 @@ class NamePool:
             raise ValueError
         self.active.remove(name)
         self.retired.append(name)
-        if len(self.retired) > config.NUM_RETIRED_NAMES:
-            self.retired.popleft()
 
     def get_state(self):
         return{
             "version": 1,
             "rng": self.rng.bit_generator.state,
-            "active": self.active.sort(),
+            "active": sorted(self.active),
             "retired": list(self.retired)
         }
     
     def set_state(self, state):
         self.rng.bit_generator.state = state["rng"]
-        self.active = state["active"]
-        self.retired = state["retired"]
+        self.active = set(state["active"])
+        self.retired = deque(state["retired"], maxlen=config.NUM_RETIRED_NAMES)
 
     @classmethod
     def from_state(cls, state):
