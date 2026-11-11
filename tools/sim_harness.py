@@ -1,5 +1,7 @@
+import copy
 import itertools
 import json
+import math
 import os
 import random
 import re
@@ -8,8 +10,10 @@ from collections import deque
 from contextlib import contextmanager
 
 import matplotlib.pyplot as plt
+from numpy.random import default_rng
 
 from server import config
+from server.factory import PARAM_KEYS, check_specs, make_stock, roll
 from server.names import NamePool
 from server.stock import Stock, StockParams
 
@@ -285,6 +289,363 @@ def test_names_save_restore():
         f"Restored pool diverged at pick {idx}: expected {expected[idx]!r}, got {actual[idx]!r}")
     assert (json.dumps(pool.get_state(), sort_keys=True)
             == json.dumps(restored.get_state(), sort_keys=True)), "final states differ"
+
+
+# ---------------------------------------------------------------------------
+# Factory tests
+# ---------------------------------------------------------------------------
+
+FACTORY_CATEGORIES = tuple(config.CATEGORY_SPECS)
+
+
+def raised_message(exc_type, fn, *args, **kwargs):
+    """Call fn, require it to raise exc_type, and return the message."""
+    try:
+        fn(*args, **kwargs)
+    except exc_type as e:
+        return str(e)
+    raise AssertionError(f"{fn.__name__} should have raised {exc_type.__name__}")
+
+
+def state_text(stock):
+    """A stock's full saved state as comparable JSON text."""
+    return json.dumps(stock.get_state(), sort_keys=True)
+
+
+def single_value_specs(category="only", **overrides):
+    """A specs dict whose ranges are all (x, x), so every roll is predictable."""
+    spec = {
+        "count": 1,
+        "start_price": (50.0, 50.0),
+        "volatility": (0.003, 0.003),
+        "drift": (0.0, 0.0),
+        "reversion": (0.0005, 0.0005),
+        "jump_prob": (0.0002, 0.0002),
+        "jump_scale": (0.03, 0.03),
+        "death_prob": (0.000002, 0.000002),
+    }
+    spec.update(overrides)
+    return {category: spec}
+
+
+def assert_in_range(label, value, lo, hi):
+    # Log-space rolling can land a hair outside the range through rounding.
+    eps = 1e-12 * max(abs(lo), abs(hi))
+    assert lo - eps <= value <= hi + eps, f"{label} = {value!r} is outside ({lo}, {hi})"
+
+
+def assert_stock_matches_spec(stock, spec):
+    assert_in_range("start_price", stock.baseline, *spec["start_price"])
+    for key in PARAM_KEYS:
+        assert_in_range(key, getattr(stock.params, key), *spec[key])
+
+
+def build_market(master_seed=77):
+    """Create the starting market the way the server would: one name per stock."""
+    pool = NamePool(master_seed)
+    market, uid = [], 0
+    for category, spec in config.CATEGORY_SPECS.items():
+        for _ in range(spec["count"]):
+            market.append(make_stock(category, uid, master_seed, pool.pick()))
+            uid += 1
+    return pool, market
+
+
+def test_factory_keys_match_config():
+    # factory builds StockParams from PARAM_KEYS; config validates RANGE_KEYS.
+    # If these drift apart, adding a stat in one place breaks the other.
+    assert set(PARAM_KEYS) | {"start_price"} == set(config.RANGE_KEYS), (
+        f"factory expects {sorted(set(PARAM_KEYS) | {'start_price'})}, "
+        f"config.RANGE_KEYS is {sorted(config.RANGE_KEYS)}")
+    assert len(set(PARAM_KEYS)) == len(PARAM_KEYS), "PARAM_KEYS has duplicates"
+
+
+def test_factory_check_specs_accepts_real_config():
+    before = copy.deepcopy(config.CATEGORY_SPECS)
+    check_specs()
+    check_specs(config.CATEGORY_SPECS)
+    assert config.CATEGORY_SPECS == before, "check_specs modified the specs it was given"
+
+
+def test_factory_check_specs_rejects_bad_keys():
+    # count is not a StockParams field, so a spec without it is still fine
+    no_count = copy.deepcopy(config.CATEGORY_SPECS)
+    del no_count["safe"]["count"]
+    check_specs(no_count)
+
+    missing = copy.deepcopy(config.CATEGORY_SPECS)
+    del missing["safe"]["drift"]
+    msg = raised_message(ValueError, check_specs, missing)
+    assert "safe" in msg and "drift" in msg, f"message doesn't name the problem: {msg!r}"
+
+    no_price = copy.deepcopy(config.CATEGORY_SPECS)
+    del no_price["medium"]["start_price"]
+    msg = raised_message(ValueError, check_specs, no_price)
+    assert "medium" in msg and "start_price" in msg, f"message doesn't name the problem: {msg!r}"
+
+    typo = copy.deepcopy(config.CATEGORY_SPECS)
+    typo["risky"]["volatilty"] = typo["risky"].pop("volatility")
+    msg = raised_message(ValueError, check_specs, typo)
+    assert "volatilty" in msg and "volatility" in msg, f"typo and missing key not reported: {msg!r}"
+
+
+def test_factory_check_specs_reports_every_category():
+    # The error says "Spec keys don't match" for the whole config, so one
+    # run should list every broken category, not just the first one found.
+    broken = copy.deepcopy(config.CATEGORY_SPECS)
+    del broken["safe"]["drift"]
+    del broken["risky"]["jump_scale"]
+    msg = raised_message(ValueError, check_specs, broken)
+    assert "safe" in msg, f"safe's problem missing from message: {msg!r}"
+    assert "risky" in msg, f"risky's problem missing from message (stopped at first bad category?): {msg!r}"
+
+
+def test_factory_check_specs_reads_config_by_default():
+    broken = copy.deepcopy(config.CATEGORY_SPECS)
+    del broken["medium"]["reversion"]
+    with patched_config(CATEGORY_SPECS=broken):
+        assert_raises(ValueError, check_specs)
+    check_specs()  # real config is back and passes again
+
+
+def test_factory_roll_range_and_type():
+    rng = default_rng(1)
+    ranges = [(1.0, 100.0), (0.0005, 0.002), (0.0, 0.0001),
+              (-0.00001, 0.00005), (-1.0, 1.0), (5.0, 5.0), (0.0, 0.0)]
+    for lo, hi in ranges:
+        for _ in range(3000):
+            v = roll(rng, lo, hi)
+            # Plain float so JSON saving never meets NumPy types
+            assert type(v) is float, f"roll returned {type(v).__name__} for ({lo}, {hi})"
+            assert_in_range("roll", v, lo, hi)
+        json.dumps(v)
+
+
+def test_factory_roll_log_vs_linear():
+    n = 20000
+    # lo > 0: log-uniform, so the geometric middle is the median
+    rng = default_rng(2)
+    draws = [roll(rng, 1.0, 10000.0) for _ in range(n)]
+    below = sum(v < 100.0 for v in draws) / n
+    assert 0.47 < below < 0.53, f"positive range should be log-uniform; {below:.3f} fell below the geometric middle"
+
+    # lo == 0: linear, so the plain middle is the median
+    rng = default_rng(3)
+    draws = [roll(rng, 0.0, 100.0) for _ in range(n)]
+    below_mid = sum(v < 50.0 for v in draws) / n
+    below_tenth = sum(v < 10.0 for v in draws) / n
+    assert 0.47 < below_mid < 0.53, f"range starting at 0 should be linear; {below_mid:.3f} fell below the middle"
+    assert 0.08 < below_tenth < 0.12, f"range starting at 0 should be linear; {below_tenth:.3f} fell below 10%"
+
+    # negative lo: linear, and actually produces negatives (drift needs this)
+    rng = default_rng(4)
+    draws = [roll(rng, -1.0, 1.0) for _ in range(n)]
+    negative = sum(v < 0 for v in draws) / n
+    assert 0.47 < negative < 0.53, f"signed range should be linear; {negative:.3f} were negative"
+
+
+def test_factory_roll_deterministic():
+    a = [roll(default_rng(5), 1.0, 100.0) for _ in range(1)]
+    b = [roll(default_rng(5), 1.0, 100.0) for _ in range(1)]
+    assert a == b, "same generator seed gave different rolls"
+    rng_a, rng_b = default_rng(6), default_rng(6)
+    seq_a = [roll(rng_a, 0.0, 1.0) for _ in range(50)]
+    seq_b = [roll(rng_b, 0.0, 1.0) for _ in range(50)]
+    assert seq_a == seq_b, "same seed gave different roll sequences"
+    assert seq_a != [roll(default_rng(7), 0.0, 1.0) for _ in range(50)], "different seeds gave the same rolls"
+
+
+def test_factory_make_stock_basics():
+    for i, category in enumerate(FACTORY_CATEGORIES):
+        stock = make_stock(category, 10 + i, 2026, "ABC")
+        assert isinstance(stock, Stock), f"{category}: not a Stock"
+        assert stock.id == 10 + i, f"{category}: id not set"
+        assert stock.name == "ABC", f"{category}: name not set"
+        assert stock.category == category, f"{category}: category not set"
+        assert stock.alive is True, f"{category}: stock was created dead"
+        assert stock.price == stock.baseline, f"{category}: starts off its baseline"
+        assert type(stock.price) is float, f"{category}: price is {type(stock.price).__name__}, not float"
+        assert isinstance(stock.params, StockParams), f"{category}: params is not StockParams"
+        assert stock.price > config.MIN_PRICE, f"{category}: starts below MIN_PRICE and would die on tick 1"
+        assert_stock_matches_spec(stock, config.CATEGORY_SPECS[category])
+    print("factory make_stock basics: passed")
+
+
+def test_factory_unknown_category():
+    assert_raises(ValueError, make_stock, "nope", 1, 1, "ABC")
+    assert_raises(ValueError, make_stock, "Safe", 1, 1, "ABC")  # categories are lowercase
+    # "safe" exists in config but not in these custom specs
+    assert_raises(ValueError, make_stock, "safe", 1, 1, "ABC", single_value_specs())
+
+
+def test_factory_deterministic():
+    for category in FACTORY_CATEGORIES:
+        a = make_stock(category, 3, 999, "ABC")
+        b = make_stock(category, 3, 999, "ABC")
+        assert a.params == b.params, f"{category}: same inputs gave different params"
+        assert a.baseline == b.baseline, f"{category}: same inputs gave different start prices"
+        assert state_text(a) == state_text(b), f"{category}: same inputs gave different starting state"
+        idx = first_difference(run_ticks(a, 300), run_ticks(b, 300))
+        assert idx is None, f"{category}: same inputs diverged at tick {idx}"
+
+
+def test_factory_seed_sensitivity():
+    base = make_stock("medium", 1, 2, "ABC")
+    variants = {
+        "different uid": make_stock("medium", 2, 2, "ABC"),
+        "different master seed": make_stock("medium", 1, 3, "ABC"),
+        # (seed, uid) swapped: a scheme like seed + uid would collide here
+        "swapped seed and uid": make_stock("medium", 2, 1, "ABC"),
+    }
+    for label, other in variants.items():
+        assert other.params != base.params, f"{label}: params were identical"
+        assert other.baseline != base.baseline, f"{label}: start price was identical"
+        assert (other.rng.bit_generator.state != base.rng.bit_generator.state), (
+            f"{label}: tick random stream was identical")
+    # zero is a legitimate seed and uid
+    make_stock("safe", 0, 0, "ABC")
+
+
+def test_factory_name_does_not_change_stock():
+    a = make_stock("risky", 4, 11, "AAA")
+    b = make_stock("risky", 4, 11, "ZZZ")
+    assert a.name == "AAA" and b.name == "ZZZ", "name was not passed through"
+    assert a.params == b.params and a.baseline == b.baseline, "name changed the rolled stats"
+    assert a.rng.bit_generator.state == b.rng.bit_generator.state, "name changed the tick stream"
+
+
+def test_factory_order_independent():
+    # Making other stocks first (and ticking them) must not change stock 7.
+    expected = state_text(make_stock("risky", 7, 31, "ABC"))
+    for uid in range(50):
+        other = make_stock(FACTORY_CATEGORIES[uid % len(FACTORY_CATEGORIES)], uid + 100, 31, "XYZ")
+        run_ticks(other, 20)
+    assert state_text(make_stock("risky", 7, 31, "ABC")) == expected, (
+        "stock 7 changed after other stocks were made; there is hidden shared state")
+
+
+def test_factory_tick_stream_independent_of_specs():
+    # Retuning config should change the stats but not the underlying noise,
+    # because ticks and rolls draw from separate child seeds.
+    default = make_stock("safe", 5, 8, "ABC")
+    tuned = make_stock("safe", 5, 8, "ABC", single_value_specs("safe"))
+    assert default.params != tuned.params, "test setup: specs should give different params"
+    assert default.rng.bit_generator.state == tuned.rng.bit_generator.state, (
+        "tick random stream depends on the spec ranges")
+
+
+def test_factory_custom_specs():
+    specs = single_value_specs("only")
+    before = copy.deepcopy(specs)
+    stock = make_stock("only", 1, 1, "ABC", specs)
+    assert specs == before, "make_stock modified the specs it was given"
+    assert stock.category == "only"
+    assert math.isclose(stock.baseline, 50.0, rel_tol=1e-9), f"start price {stock.baseline}"
+    assert math.isclose(stock.params.volatility, 0.003, rel_tol=1e-9)
+    assert stock.params.drift == 0.0
+    assert math.isclose(stock.params.reversion, 0.0005, rel_tol=1e-9)
+    assert math.isclose(stock.params.jump_prob, 0.0002, rel_tol=1e-9)
+    assert math.isclose(stock.params.jump_scale, 0.03, rel_tol=1e-9)
+    assert math.isclose(stock.params.death_prob, 0.000002, rel_tol=1e-9)
+
+    # With no specs argument it should read config at call time
+    with patched_config(CATEGORY_SPECS=single_value_specs("only")):
+        stock = make_stock("only", 1, 1, "ABC")
+        assert stock.category == "only"
+        assert_raises(ValueError, make_stock, "safe", 1, 1, "ABC")
+    make_stock("safe", 1, 1, "ABC")  # real config is back
+
+
+def test_factory_missing_spec_key_fails_loudly():
+    specs = single_value_specs("only")
+    del specs["only"]["jump_scale"]
+    assert_raises(KeyError, make_stock, "only", 1, 1, "ABC", specs)
+
+
+def test_factory_rolled_params_always_valid():
+    # StockParams rejects out-of-range values, so building many stocks from
+    # the real config checks the config's ranges against those rules too.
+    for category in FACTORY_CATEGORIES:
+        spec = config.CATEGORY_SPECS[category]
+        stocks = [make_stock(category, uid, 12345, "ABC") for uid in range(300)]
+        for stock in stocks:
+            assert stock.alive and stock.price > config.MIN_PRICE, f"{category} uid {stock.id} started dead"
+            assert_stock_matches_spec(stock, spec)
+        assert len({s.params for s in stocks}) == len(stocks), f"{category}: two stocks got identical params"
+        assert len({s.baseline for s in stocks}) == len(stocks), f"{category}: two stocks got identical start prices"
+        # Fresh stocks should be able to tick without blowing up
+        for stock in stocks[:20]:
+            prices = run_ticks(stock, 100)
+            assert all(math.isfinite(p) for p in prices), f"{category} uid {stock.id} produced a non-finite price"
+
+
+def test_factory_categories_are_ordered_by_risk():
+    def median(values):
+        values = sorted(values)
+        return values[len(values) // 2]
+
+    meds = {}
+    for category in ("safe", "medium", "risky"):
+        stocks = [make_stock(category, uid, 54321, "ABC") for uid in range(400)]
+        meds[category] = {key: median([getattr(s.params, key) for s in stocks])
+                          for key in ("volatility", "death_prob", "jump_scale")}
+    for key in ("volatility", "death_prob", "jump_scale"):
+        assert meds["safe"][key] < meds["medium"][key] < meds["risky"][key], (
+            f"median {key} isn't safe < medium < risky: "
+            f"{[meds[c][key] for c in ('safe', 'medium', 'risky')]}")
+
+
+def test_factory_stock_save_restore():
+    # A factory-built stock (seeded from a SeedSequence) must survive a real save.
+    stock = make_stock("medium", 21, 2026, "SAV")
+    run_ticks(stock, 300)
+    assert stock.alive, "stock died during warm-up; pick another uid"
+
+    saved = json.loads(json.dumps(stock.get_state()))
+    expected = run_ticks(stock, 300)
+    restored = Stock.from_state(saved)
+    actual = run_ticks(restored, 300)
+
+    idx = first_difference(expected, actual)
+    assert idx is None, f"Restored factory stock diverged at tick {idx}: expected {expected[idx]!r}, got {actual[idx]!r}"
+    assert_same_identity(restored, stock)
+
+
+def test_factory_starting_market():
+    pool, market = build_market()
+    assert len(market) == TOTAL_STOCKS, f"expected {TOTAL_STOCKS} stocks, built {len(market)}"
+    assert len({s.id for s in market}) == len(market), "duplicate stock ids"
+    assert len({s.name for s in market}) == len(market), "duplicate stock names"
+    assert {s.name for s in market} == pool.active, "pool's active names don't match the market"
+    for category, spec in config.CATEGORY_SPECS.items():
+        count = sum(s.category == category for s in market)
+        assert count == spec["count"], f"{category}: expected {spec['count']} stocks, built {count}"
+    assert all(s.alive for s in market), "a stock started dead"
+
+    # Same seed, same market
+    _, again = build_market()
+    assert [state_text(s) for s in market] == [state_text(s) for s in again], "market isn't reproducible"
+    # Different seed, different market
+    _, other = build_market(master_seed=78)
+    assert [s.params for s in market] != [s.params for s in other], "different master seed gave the same market"
+
+
+def test_factory_replacement_after_death():
+    # Dead stock is retired and replaced under a new uid and a new name.
+    pool, market = build_market()
+    victim = market[0]
+    victim.alive, victim.price = False, 0.0
+    next_uid = max(s.id for s in market) + 1
+
+    pool.retire(victim.name)
+    replacement = make_stock(victim.category, next_uid, 77, pool.pick())
+
+    assert replacement.alive and replacement.price > config.MIN_PRICE, "replacement started dead"
+    assert replacement.id != victim.id, "replacement reused the old id"
+    assert replacement.name != victim.name, "replacement got the dead stock's name back"
+    assert replacement.name not in {s.name for s in market[1:]}, "replacement stole a live stock's name"
+    assert replacement.params != victim.params, "replacement is a clone of the dead stock"
+    assert_stock_matches_spec(replacement, config.CATEGORY_SPECS[victim.category])
 
 
 def demo_plot():
