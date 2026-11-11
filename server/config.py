@@ -197,7 +197,7 @@ if __name__ == "__main__":
 
 # Blocklist... it has to be done somewhere
 # Credit to ElementalEngine2 for most of this list, you made my life easier
-BLOCKED = ["ANL", "ANS", "ASS", "AZN", "BBW", "BCH", "CAC", "CAK", 
+BLOCKED = frozenset(["ANL", "ANS", "ASS", "AZN", "BBW", "BCH", "CAC", "CAK", 
                     "CAQ", "CLT", "CNC", "CNT", "COC", "COK", "COQ", "COX", 
                     "CPD", "CUM", "DCK", "DIC", "DIK", "DIQ", "DIX", "DMN", 
                     "DSH", "DYC", "DYK", "DYQ", "EYP", "FAG", "FAP", "FCK", 
@@ -217,4 +217,4 @@ BLOCKED = ["ANL", "ANS", "ASS", "AZN", "BBW", "BCH", "CAC", "CAK",
                     "STD", "SUC", "SUK", "SUQ", "SXE", "SXI", "SXX", "SXY", 
                     "SYD", "THC", "TIT", "TOC", "TOK", "TOQ", "TWT", "VAG", 
                     "VAJ", "VGN", "VJN", "WAC", "WAK", "WAQ", "WCK", "WOP", 
-                    "WTF", "XTC", "XXX"]
+                    "WTF", "XTC", "XXX"])

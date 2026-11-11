@@ -14,7 +14,7 @@ Early development. The stock simulation and its configuration are working and te
 - [x] Seeded random numbers for every stock, with exact save and restore
 - [x] Category settings with startup validation
 - [x] Simulation harness with save/restore tests and plotting
-- [ ] Name generator with a cooldown on recently retired names (in progress)
+- [x] Name generator with a cooldown on recently retired names (in progress)
 - [ ] Stock factory and rebirth of crashed stocks
 - [ ] Market-wide mood that nudges all stocks together
 - [ ] Players, trades, and a leaderboard
