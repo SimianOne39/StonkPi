@@ -62,7 +62,7 @@ class Game:
     
     def set_state(self, state):
         if not state["version"] == 1:
-            raise ValueError, f"Unknown game state version: {state['version']}"
+            raise ValueError(f"Unknown game state version: {state['version']}")
         self.master_seed = state["master_seed"]
         self.next_uid = state["next_uid"]
         self.tick_count = state["tick_count"]
