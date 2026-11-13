@@ -15,7 +15,7 @@ Early development. The stock simulation and its configuration are working and te
 - [x] Category settings with startup validation
 - [x] Simulation harness with save/restore tests and plotting
 - [x] Name generator with a cooldown on recently retired names (in progress)
-- [ ] Stock factory and rebirth of crashed stocks
+- [x] Stock factory and rebirth of crashed stocks
 - [ ] Market-wide mood that nudges all stocks together
 - [ ] Players, trades, and a leaderboard
 - [ ] Flask-SocketIO server and live charts in the browser
