@@ -40,7 +40,7 @@ class Game:
                     events.append({"type": "died", "id": stock.id})
             else:
                 slot["countdown"] -= 1
-                if countdown <= 0:
+                if slot["countdown"] <= 0:
                     self.pool.retire(stock.name)
                     new_stock = self._spawn(stock.category)
                     slot["stock"] = new_stock
@@ -60,7 +60,7 @@ class Game:
                        for slot in self.slots ]
         }
     
-    def set_state(state):
+    def set_state(self, state):
         if not state["version"] == 1:
             raise ValueError
         self.master_seed = state["master_seed"]

@@ -14,6 +14,7 @@ from numpy.random import default_rng
 
 from server import config
 from server.factory import PARAM_KEYS, check_specs, make_stock, roll
+from server.game import Game
 from server.names import NamePool
 from server.stock import Stock, StockParams
 
@@ -646,6 +647,278 @@ def test_factory_replacement_after_death():
     assert replacement.name not in {s.name for s in market[1:]}, "replacement stole a live stock's name"
     assert replacement.params != victim.params, "replacement is a clone of the dead stock"
     assert_stock_matches_spec(replacement, config.CATEGORY_SPECS[victim.category])
+
+
+# ---------------------------------------------------------------------------
+# Game tests
+# ---------------------------------------------------------------------------
+
+def churn_specs(per_category=4, death=(0.002, 0.01)):
+    """Real specs, but a small market where stocks die often, so rebirths
+    happen within a short test. Every stock starts at exactly $500, which
+    lets tests tell whether the specs passed in were actually used."""
+    specs = copy.deepcopy(config.CATEGORY_SPECS)
+    for spec in specs.values():
+        spec["count"] = per_category
+        spec["death_prob"] = death
+        spec["start_price"] = (500.0, 500.0)
+    return specs
+
+
+def game_state_text(game):
+    """A game's full saved state as comparable JSON text."""
+    return json.dumps(game.get_state(), sort_keys=True)
+
+
+def slot_index_by_id(game):
+    return {slot["stock"].id: i for i, slot in enumerate(game.slots)}
+
+
+def test_game_new_basics():
+    game = Game.new(77)
+    stocks = [slot["stock"] for slot in game.slots]
+    assert len(stocks) == TOTAL_STOCKS, f"expected {TOTAL_STOCKS} slots, got {len(stocks)}"
+
+    expected = [c for c in config.CATEGORIES for _ in range(config.CATEGORY_SPECS[c]["count"])]
+    assert [s.category for s in stocks] == expected, "slots are not in category order"
+    assert [s.id for s in stocks] == list(range(1, TOTAL_STOCKS + 1)), "ids should run 1..N in slot order"
+    assert game.next_uid == TOTAL_STOCKS + 1, f"next_uid is {game.next_uid}"
+    assert game.tick_count == 0, "a new game should start at tick 0"
+    assert all(s.alive for s in stocks), "a stock started dead"
+    assert all(slot["countdown"] is None for slot in game.slots), "a new slot has a countdown"
+
+    names = {s.name for s in stocks}
+    assert len(names) == TOTAL_STOCKS, "duplicate names in the starting market"
+    assert names == game.pool.active, "pool's active names don't match the market"
+
+    assert game_state_text(Game.new(77)) == game_state_text(game), "same seed gave a different game"
+    assert game_state_text(Game.new(78)) != game_state_text(game), "different seeds gave the same game"
+
+
+def test_game_specs_honored():
+    specs = churn_specs()
+    for i, category in enumerate(config.CATEGORIES):
+        specs[category]["count"] = i + 2          # 2, 3, 4, ...
+    game = Game.new(5, specs)
+
+    for i, category in enumerate(config.CATEGORIES):
+        got = sum(slot["stock"].category == category for slot in game.slots)
+        assert got == i + 2, f"{category}: expected {i + 2} stocks, got {got}"
+    for slot in game.slots:
+        assert_stock_matches_spec(slot["stock"], specs[slot["stock"].category])
+
+    bad = copy.deepcopy(config.CATEGORY_SPECS)
+    first = config.CATEGORIES[0]
+    bad[first]["volatilty"] = bad[first].pop("volatility")
+    msg = raised_message(ValueError, Game, 1, bad)
+    assert "volatil" in msg, f"bad specs error doesn't name the key: {msg!r}"
+
+
+def test_game_tick_empty_game():
+    game = Game(1)
+    assert game.tick() == [], "an empty game should produce no events"
+    assert game.tick_count == 1, "tick_count should still advance"
+
+
+def test_game_tick_without_deaths():
+    specs = churn_specs(death=(0.0, 0.0))
+    game = Game.new(3, specs)
+    for _ in range(300):
+        assert game.tick() == [], "events appeared although nothing can die"
+    assert game.tick_count == 300, f"tick_count is {game.tick_count}"
+    assert all(slot["stock"].alive for slot in game.slots), "a stock died with death_prob 0"
+    assert any(slot["stock"].price != slot["stock"].baseline for slot in game.slots), "prices never moved"
+
+
+def test_game_invariants_under_churn():
+    game = Game.new(11, churn_specs())
+    total = len(game.slots)
+    categories = [slot["stock"].category for slot in game.slots]
+    delay = config.DELIST_DELAY
+    deaths = births = 0
+
+    for _ in range(3000):
+        events = game.tick()
+        deaths += sum(e["type"] == "died" for e in events)
+        births += sum(e["type"] == "born" for e in events)
+        t = game.tick_count
+
+        assert len(game.slots) == total, f"slot count changed to {len(game.slots)} at tick {t}"
+        assert [sl["stock"].category for sl in game.slots] == categories, f"a slot changed category at tick {t}"
+        stocks = [sl["stock"] for sl in game.slots]
+        names = [s.name for s in stocks]
+        assert len(set(names)) == total, f"duplicate names at tick {t}"
+        assert set(names) == game.pool.active, f"names and pool disagree at tick {t}"
+        assert len({s.id for s in stocks}) == total, f"duplicate ids at tick {t}"
+        for slot in game.slots:
+            stock, countdown = slot["stock"], slot["countdown"]
+            if stock.alive:
+                assert countdown is None, f"live stock {stock.name} has a countdown at tick {t}"
+            else:
+                assert countdown is not None and 1 <= countdown <= delay, (
+                    f"dead stock {stock.name} has countdown {countdown} at tick {t}")
+
+    assert deaths >= 30 and births >= 30, f"only {deaths} deaths and {births} births; test is too weak"
+    assert game.next_uid == total + births + 1, "next_uid doesn't match the number of births"
+
+
+def test_game_rebirth_timing():
+    # A stock that dies on tick T is replaced on tick T + DELIST_DELAY.
+    for delay in (1, 3, 10):
+        specs = churn_specs()
+        with patched_config(DELIST_DELAY=delay):
+            game = Game.new(5, specs)
+            died = {}                      # slot index -> (tick, id, name, category)
+            deaths = births = 0
+            for _ in range(2000):
+                before = slot_index_by_id(game)
+                events = game.tick()
+                after = slot_index_by_id(game)
+                t = game.tick_count
+                for e in events:
+                    if e["type"] == "died":
+                        i = before[e["id"]]
+                        assert i not in died, f"slot {i} died twice without a rebirth"
+                        old = game.slots[i]["stock"]
+                        died[i] = (t, old.id, old.name, old.category)
+                        deaths += 1
+                    else:
+                        i = after[e["id"]]
+                        assert i in died, f"slot {i} was reborn without dying"
+                        t_died, old_id, old_name, old_category = died.pop(i)
+                        assert t - t_died == delay, (
+                            f"delay {delay}: slot {i} died at tick {t_died} but was reborn at tick {t}")
+                        new = game.slots[i]["stock"]
+                        assert new.alive and game.slots[i]["countdown"] is None, "replacement is not live"
+                        assert new.id > old_id, "replacement should have a newer id"
+                        assert new.name != old_name, "replacement kept the old name"
+                        assert new.category == old_category, "replacement changed category"
+                        assert old_name in game.pool.retired, "old name was not retired"
+                        assert old_name not in game.pool.active, "old name is still active"
+                        assert new.name in game.pool.active, "new name is not active"
+                        assert_stock_matches_spec(new, specs[new.category])
+                        births += 1
+            assert deaths >= 20 and births >= 20, f"delay {delay}: only {deaths} deaths, {births} births"
+
+
+def test_game_countdown_counts_down():
+    with patched_config(DELIST_DELAY=5):
+        game = Game.new(4, churn_specs())
+        dead = {}                          # slot index -> (stock object, tick it died)
+        checked = 0
+        for _ in range(1500):
+            game.tick()
+            t = game.tick_count
+            for i, slot in enumerate(game.slots):
+                stock = slot["stock"]
+                if stock.alive:
+                    dead.pop(i, None)
+                    continue
+                if i not in dead:
+                    dead[i] = (stock, t)
+                original, t_died = dead[i]
+                assert stock is original, f"slot {i} swapped its stock mid-countdown"
+                assert stock.price == 0, f"dead stock {stock.name} has price {stock.price}"
+                assert slot["countdown"] == 5 - (t - t_died), (
+                    f"slot {i}: countdown is {slot['countdown']} at tick {t}, died at {t_died}")
+                checked += 1
+        assert checked > 50, "too few dead-stock ticks were checked"
+
+
+def test_game_events_describe_what_happened():
+    game = Game.new(8, churn_specs())
+    seen = set()
+    for _ in range(1000):
+        events = game.tick()
+        by_id = {slot["stock"].id: slot["stock"] for slot in game.slots}
+        for e in events:
+            assert set(e) == {"type", "id"}, f"unexpected event keys: {sorted(e)}"
+            assert e["type"] in ("died", "born"), f"unknown event type {e['type']!r}"
+            assert type(e["id"]) is int, f"event id {e['id']!r} is not an int"
+            stock = by_id.get(e["id"])
+            assert stock is not None, f"event refers to id {e['id']} which is in no slot"
+            assert stock.alive == (e["type"] == "born"), f"{e['type']} event, but alive={stock.alive}"
+            seen.add(e["type"])
+    assert seen == {"died", "born"}, f"only saw event types {seen}"
+
+
+def test_game_deterministic():
+    specs = churn_specs()
+    a, b = Game.new(21, specs), Game.new(21, specs)
+    for t in range(1500):
+        ea, eb = a.tick(), b.tick()
+        assert ea == eb, f"same seed produced different events at tick {t + 1}"
+    assert game_state_text(a) == game_state_text(b), "same seed ended in different states"
+
+    c = Game.new(22, specs)
+    for _ in range(1500):
+        c.tick()
+    assert game_state_text(c) != game_state_text(a), "different seeds ended in the same state"
+
+
+def test_game_state_is_plain_json():
+    game = Game.new(31, churn_specs())
+    for _ in range(300):
+        game.tick()
+    state = game.get_state()
+    assert json.loads(json.dumps(state)) == state, "state changes when sent through JSON"
+
+
+def test_game_save_restore():
+    specs = churn_specs()
+    game = Game.new(41, specs)
+    for _ in range(500):
+        game.tick()
+    # Make sure the save lands in the middle of a countdown
+    for _ in range(1000):
+        if any(slot["countdown"] is not None for slot in game.slots):
+            break
+        game.tick()
+    assert any(slot["countdown"] is not None for slot in game.slots), "no stock was ever mid-countdown"
+    assert any(slot["countdown"] is None for slot in game.slots), "every stock is dead; test is too weak"
+
+    saved = json.loads(json.dumps(game.get_state()))        # real JSON text
+    restored = Game.from_state(saved, specs)
+    assert game_state_text(restored) == game_state_text(game), "state differs right after restore"
+
+    for t in range(1500):
+        ea, eb = game.tick(), restored.tick()
+        assert ea == eb, f"restored game diverged at tick {t + 1}: {ea} vs {eb}"
+    assert game_state_text(game) == game_state_text(restored), "final states differ"
+
+
+def test_game_restore_keeps_saved_stock_params():
+    # Saved stocks carry their own parameters; changing the specs on load
+    # must only affect stocks created afterward.
+    specs = churn_specs()
+    game = Game.new(51, specs)
+    for _ in range(200):
+        game.tick()
+    saved = json.loads(json.dumps(game.get_state()))
+
+    other = copy.deepcopy(specs)
+    for spec in other.values():
+        spec["volatility"] = (0.01, 0.02)
+        spec["start_price"] = (9.0, 9.0)
+    restored = Game.from_state(saved, other)
+    assert game_state_text(restored) == game_state_text(game), "restore changed saved stocks"
+
+
+def test_game_set_state_validation():
+    game = Game.new(61, churn_specs())
+    for _ in range(50):
+        game.tick()
+    state = json.loads(json.dumps(game.get_state()))
+
+    bad_version = copy.deepcopy(state)
+    bad_version["version"] = 99
+    assert_raises(ValueError, Game.from_state, bad_version)
+
+    bad_names = copy.deepcopy(state)
+    stock_state = bad_names["slots"][0]["stock"]
+    stock_state["name"] = "QQQ" if stock_state["name"] != "QQQ" else "WWW"
+    msg = raised_message(ValueError, Game.from_state, bad_names)
+    assert "inconsistent" in msg, f"unhelpful error for an inconsistent save: {msg!r}"
 
 
 def demo_plot():
